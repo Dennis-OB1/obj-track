@@ -8,7 +8,7 @@ const int servoPin = 9; // Servo signal pin
 int servoPosition = 90; // Initial servo position
 bool objectDetected = false; // Flag to track object detection
 
-int savedObjectID = 1; // Change this to the ID of the saved object you want to track
+int savedObjectID = 2; // Change this to the ID of the saved object you want to track
 
 void printResult(HUSKYLENSResult result);
 void smoothMoveServo(int targetPosition);
