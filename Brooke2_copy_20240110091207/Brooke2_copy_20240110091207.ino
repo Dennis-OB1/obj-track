@@ -5,10 +5,14 @@ HUSKYLENS huskylens;
 SoftwareSerial mySerial(10, 11); // RX, TX
 
 const int servoPin = 9; // Servo signal pin
+const int ledPin = 13; // LED control pin
+const int relayPin = 12; // Relay control pin
+const int detectionPauseDuration = 5000; // Pause duration in milliseconds
+
 int servoPosition = 90; // Initial servo position
 bool objectDetected = false; // Flag to track object detection
 
-int savedObjectID = 2; // Change this to the ID of the saved object you want to track
+int savedObjectID = 1; // Change this to the ID of the saved object you want to track
 
 void printResult(HUSKYLENSResult result);
 void smoothMoveServo(int targetPosition);
@@ -26,6 +30,12 @@ void setup() {
     }
     pinMode(servoPin, OUTPUT);
 
+    pinMode(ledPin, OUTPUT);
+    digitalWrite(ledPin, LOW); // Ensure the LED is initially off
+    pinMode(relayPin, OUTPUT);
+    digitalWrite(relayPin, LOW); // Ensure the relay is initially off
+    Serial.println(F("Both HIGH!"));
+
     // Configure HuskyLens to recognize a specific object
     sendCommandToHuskyLens("SET_RECOGNITION_MODE", "LEARNED_OBJECT_1");
 }
@@ -40,12 +50,21 @@ void loop() {
             printResult(result);
 
             if (result.command == COMMAND_RETURN_BLOCK && result.ID == savedObjectID) {
-                objectDetected = true;
-                int posX = result.xCenter; // Get X position of the object
+              objectDetected = true;
+              int posX = result.xCenter; // Get X position of the object
 
-                // Invert the mapping to align servo movement with object position
-                int targetPosition = map(posX, 0, 320, 180, 0);
-                smoothMoveServo(targetPosition);
+              // Invert the mapping to align servo movement with object position
+              int targetPosition = map(posX, 0, 320, 180, 0);
+              smoothMoveServo(targetPosition);
+
+//              lastDetectionTime = millis(); // Record the time of the last detection
+              objectDetected = true; // Set object detection flag
+              digitalWrite(ledPin, HIGH); // Turn on the LED
+              digitalWrite(relayPin, HIGH); // Turn on the relay to activate the external light
+              delay(1000); // Keep the LED and external light on for 1 second
+              digitalWrite(ledPin, LOW); // Turn off the LED
+              digitalWrite(relayPin, LOW); // Turn off the relay to deactivate the external light
+              delay(detectionPauseDuration - 1000); // Wait for the remaining duration after turning off the LED and light
             }
         }
     }
