@@ -1,8 +1,10 @@
 #include "HUSKYLENS.h"
 #include "SoftwareSerial.h"
+#include "TimerEvent.h"
 
 HUSKYLENS huskylens;
 SoftwareSerial mySerial(10, 11); // RX, TX
+TimerEvent myTimer;
 
 const int servoPin = 9; // Servo signal pin
 const int ledPin = 13; // LED control pin
@@ -14,6 +16,11 @@ bool objectDetected = false; // Flag to track object detection
 
 int savedObjectID = 1; // Change this to the ID of the saved object you want to track
 
+bool setup_done = 0;  // Assume setup is not done
+bool hRequest = 0;  // Assume that serial comm is not okay
+bool hLearned = 1;  // Assume that learning has been done
+bool hAvailable = 0;  // Assume nothing is available
+
 void printResult(HUSKYLENSResult result);
 void smoothMoveServo(int targetPosition);
 void moveServo(int angle);
@@ -22,11 +29,13 @@ void sendCommandToHuskyLens(String command, String parameter);
 void setup() {
   Serial.begin(115200);
   mySerial.begin(9600);
+
   while (!huskylens.begin(mySerial)) {
       Serial.println(F("Begin failed!"));
       Serial.println(F("1. Please recheck the \"Protocol Type\" in HUSKYLENS (General Settings >> Protocol Type >> Serial 9600)"));
       Serial.println(F("2. Please recheck the connection."));
       delay(100);
+      hRequest = 1;
   }
   pinMode(servoPin, OUTPUT);
 
@@ -34,17 +43,32 @@ void setup() {
   digitalWrite(ledPin, LOW); // Ensure the LED is initially off
   pinMode(relayPin, OUTPUT);
   digitalWrite(relayPin, LOW); // Ensure the relay is initially off
-  Serial.println(F("Both HIGH!"));
+  Serial.println("Both HIGH!");
 
   // Configure HuskyLens to recognize a specific object
-  sendCommandToHuskyLens("SET_RECOGNITION_MODE", "LEARNED_OBJECT_1");
+  //sendCommandToHuskyLens("SET_RECOGNITION_MODE", "LEARNED_OBJECT_1");
+  setup_done = 1;
 }
 
 void loop() {
-  if (!huskylens.request()) Serial.println(F("Fail to request data from HUSKYLENS, recheck the connection!"));
-  else if (!huskylens.isLearned()) Serial.println(F("Nothing learned, press learn button on HUSKYLENS to learn one!"));
-  else if (!huskylens.available()) Serial.println(F("No block or arrow appears on the screen!"));
+  if (!setup_done) return;
+  if (!huskylens.request()) {
+    if (hRequest) Serial.println(F("Fail to request data from HUSKYLENS, recheck the connection!"));
+    hRequest = 0;
+    return;
+  }
+  else if (!huskylens.isLearned()) {
+    if (hLearned) Serial.println(F("Nothing learned, press learn button on HUSKYLENS to learn one!"));
+    hLearned = 0;
+    return;
+  }
+  else if (!huskylens.available()) {
+    if (hAvailable) Serial.println(F("No block or arrow appears on the screen!"));
+    hAvailable = 0;
+    return;
+  }
   else {
+    hAvailable = 1;
     do {
       HUSKYLENSResult result = huskylens.read();
       printResult(result);
@@ -92,6 +116,6 @@ void moveServo(int angle) {
 void sendCommandToHuskyLens(String command, String parameter) {
   // Craft and send the command to HuskyLens
   String fullCommand = command + " " + parameter + "\n";
-  Serial.print(fullCommand);
+  mySerial.print(fullCommand);
   delay(100);  // Give time for the HuskyLens to process the command
 }
