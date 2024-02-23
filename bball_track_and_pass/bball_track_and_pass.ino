@@ -7,6 +7,7 @@ SoftwareSerial mySerial(10, 11); // RX, TX
 TimerEvent myLedTimer;
 TimerEvent myServoTimer;
 
+const int debugPin = 8; // debug signal pin
 const int servoPin = 9; // Servo signal pin
 const int ledPin = 13; // LED control pin
 const int relayPin = 12; // Relay control pin
@@ -26,7 +27,8 @@ unsigned long offWaitTime = 0;
 unsigned long now = 0;
 unsigned long ledOffTime = 1000;
 unsigned long ledOnTime = 1000;
-unsigned long servoDelayTime = 10;
+unsigned long servoDelayTime = 100;
+int servoStep = 1;
 
 void printResult(HUSKYLENSResult result);
 void smoothMoveServo(int targetPosition);
@@ -48,10 +50,12 @@ void setup() {
   }
   pinMode(servoPin, OUTPUT);
 
-  digitalWrite(ledPin, LOW); // Ensure the LED is initially off
   pinMode(ledPin, OUTPUT);
+  digitalWrite(ledPin, LOW); // Ensure the LED is initially off
   pinMode(relayPin, OUTPUT);
   digitalWrite(relayPin, LOW); // Ensure the relay is initially off
+  pinMode(debugPin, OUTPUT);
+  digitalWrite(debugPin, LOW);
 
   myLedTimer.set(ledOnTime, &ledOff);
   myLedTimer.disable();
@@ -95,7 +99,8 @@ void loop() {
 
         // Invert the mapping to align servo movement with object position
         targetPosition = map(posX, 0, 320, 180, 0);
-        myServoTimer.enable();
+        //myServoTimer.enable();
+        adjustServo();
 
         if (!ledOn && (offWaitTime < millis())) {
           digitalWrite(ledPin, HIGH); // Turn on the LED
@@ -117,13 +122,17 @@ void printResult(HUSKYLENSResult result) {
 }
 
 void adjustServo() {
-  int increment = (targetPosition - servoPosition > 0) ? 1 : -1;
+  int increment = (targetPosition - servoPosition > 0) ? servoStep : -servoStep;
+  if (increment == servoStep)
+    digitalWrite(debugPin, HIGH);
   if (servoPosition != targetPosition) {
     servoPosition += increment;
     moveServo(servoPosition);
   }
-  else
+  else {
+    digitalWrite(debugPin, HIGH);
     myServoTimer.disable();
+  }
 }
 
 void moveServo(int angle) {
