@@ -20,7 +20,7 @@ const int ledPin = 13; // LED control pin
 const int relayPin = 9; // Relay control pin
 const int detectionPauseDuration = 5000; // Pause duration in milliseconds
 
-int servoPosition = 95; // Initial servo position
+int servoPosition = 90; // Initial servo position
 int servoMin = 5;
 int servoMax = 180;
 float servoSlope = 11.1112;
@@ -33,7 +33,7 @@ int savedObjectID = 1; // Change this to the ID of the saved object you want to 
 
 bool hRequest = 0;  // Assume that serial comm is not okay
 bool hLearned = 1;  // Assume that learning has been done
-bool hAvailable = 0;  // Assume nothing is available
+bool hAvailable = 1;  // Assume nothing is available
 bool ledOn = 0;
 unsigned long offWaitTime = 0;
 unsigned long now = 0;
@@ -41,7 +41,6 @@ unsigned long ledOffTime = 1000;
 unsigned long ledOnTime = 1000;
 unsigned long servoDelayTime = 100;
 int servoStep = 1;
-int pos = 0;
 
 void printResult(HUSKYLENSResult result);
 void smoothMoveServo(int targetPosition);
@@ -52,9 +51,16 @@ void adjustServo();
 
 void setup() {
   Serial.begin(115200);
+  mySerial.begin(9600);
 
-  myservo.attach(servoPin, servoMin*servoSlope+servoOffset, servoMax*servoSlope+servoOffset);
-  myservo.write(servoPosition); // move to a centered position
+  while (!huskylens.begin(mySerial)) {
+      Serial.println(F("Begin failed!"));
+      Serial.println(F("1. Please recheck the \"Protocol Type\" in HUSKYLENS (General Settings >> Protocol Type >> Serial 9600)"));
+      Serial.println(F("2. Please recheck the connection."));
+      delay(100);
+      hRequest = 1;
+  }
+  pinMode(servoPin, OUTPUT);
 
   pinMode(ledPin, OUTPUT);
   digitalWrite(ledPin, LOW); // Ensure the LED is initially off
@@ -68,6 +74,9 @@ void setup() {
 
   myServoTimer.set(servoDelayTime, &adjustServo);
   myServoTimer.disable();
+
+  // Configure HuskyLens to recognize a specific object
+  sendCommandToHuskyLens("SET_RECOGNITION_MODE", "LEARNED_OBJECT_1");
 
   Serial.println("Setup Done!");
 }
