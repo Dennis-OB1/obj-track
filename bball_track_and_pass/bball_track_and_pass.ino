@@ -2,20 +2,34 @@
 #include "SoftwareSerial.h"
 #include "TimerEvent.h"
 
+#include "PWMServo.h"
+// The PWMServo uses PWM hardware to control the Servo on pin 12. This will ensure smooth control over
+// the servo. It was been determined for my physical 'lego' stand, that 90 degrees is centered. The
+// the servo can do 0 to 180 degrees.
+
 HUSKYLENS huskylens;
 SoftwareSerial mySerial(10, 11); // RX, TX
 TimerEvent myLedTimer;
-TimerEvent myServoTimer;
+TimerEvent myStationaryTimer;
+TimerEvent myDirServoTimer;
+PWMServo myservo;
 
 const int debugPin = 8; // debug signal pin
-const int servoPin = 9; // Servo signal pin
+const int dirServoPin = SERVO_PIN_B; // Servo signal pin
 const int ledPin = 13; // LED control pin
-const int relayPin = 12; // Relay control pin
 const int detectionPauseDuration = 5000; // Pause duration in milliseconds
 
-int servoPosition = 90; // Initial servo position
+int dirServoPosition = 90; // Initial servo position
+int servoMin = 5;
+int servoMax = 180;
+float servoSlope = 11.1112;
+int servoOffset = 500;
+
 int targetPosition = 0;
-bool objectDetected = false; // Flag to track object detection
+int lastTarget = 0;
+int increment = 0;
+int lastInc = 0;
+bool servoMoving = false; // Flag to track object detection
 
 int savedObjectID = 1; // Change this to the ID of the saved object you want to track
 
@@ -24,10 +38,13 @@ bool hLearned = 1;  // Assume that learning has been done
 bool hAvailable = 1;  // Assume nothing is available
 bool ledOn = 0;
 unsigned long offWaitTime = 0;
+unsigned long offPrintTime = 0;
+unsigned long printOffTime = 3000;
 unsigned long now = 0;
 unsigned long ledOffTime = 1000;
 unsigned long ledOnTime = 1000;
-unsigned long servoDelayTime = 100;
+unsigned long stationaryWaitTime = 2000;
+unsigned long dirServoDelayTime = 15;
 int servoStep = 1;
 
 void printResult(HUSKYLENSResult result);
@@ -48,29 +65,35 @@ void setup() {
       delay(100);
       hRequest = 1;
   }
-  pinMode(servoPin, OUTPUT);
+  myservo.attach(dirServoPin, 500, 2500);
+  pinMode(dirServoPin, OUTPUT);
+  myservo.write(dirServoPosition);
 
   pinMode(ledPin, OUTPUT);
   digitalWrite(ledPin, LOW); // Ensure the LED is initially off
-  pinMode(relayPin, OUTPUT);
-  digitalWrite(relayPin, LOW); // Ensure the relay is initially off
   pinMode(debugPin, OUTPUT);
   digitalWrite(debugPin, LOW);
 
+  // onboard LED/GPIO 13 timer
   myLedTimer.set(ledOnTime, &ledOff);
   myLedTimer.disable();
 
-  myServoTimer.set(servoDelayTime, &adjustServo);
-  myServoTimer.disable();
+  myStationaryTimer.set(stationaryWaitTime, &throwBall);
+  myStationaryTimer.disable();
+
+  myDirServoTimer.set(dirServoDelayTime, &adjustServo);
+  myDirServoTimer.disable();
 
   // Configure HuskyLens to recognize a specific object
   sendCommandToHuskyLens("SET_RECOGNITION_MODE", "LEARNED_OBJECT_1");
+
   Serial.println("Setup Done!");
 }
 
 void loop() {
   myLedTimer.update();
-  myServoTimer.update();
+  myStationaryTimer.update();
+  myDirServoTimer.update();
 
   if (!huskylens.request()) {
     if (hRequest) Serial.println(F("Fail to request data from HUSKYLENS, recheck the connection!"));
@@ -83,8 +106,12 @@ void loop() {
     return;
   }
   else if (!huskylens.available()) {
-    if (hAvailable) Serial.println(F("No block or arrow appears on the screen!"));
+    if (hAvailable) Serial.println(F("No block"));
     hAvailable = 0;
+    if (servoMoving)
+      myDirServoTimer.disable();
+    servoMoving = false;
+    lastTarget = 0;
     return;
   }
   else {
@@ -94,18 +121,53 @@ void loop() {
       printResult(result);
 
       if (result.command == COMMAND_RETURN_BLOCK && result.ID == savedObjectID) {
-        objectDetected = true; // Set object detection flag
         int posX = result.xCenter; // Get X position of the object
-
+        
         // Invert the mapping to align servo movement with object position
         targetPosition = map(posX, 0, 320, 180, 0);
-        //myServoTimer.enable();
-        adjustServo();
 
+        if (offPrintTime < millis()) {
+          Serial.println("t: "+String(targetPosition)+" c: "+String(dirServoPosition));
+          offPrintTime = millis() + printOffTime;
+        }
+
+        // The below will run every loop time if a object is detected.
+        if (abs(targetPosition - dirServoPosition) >= 10) {
+          // Start moving the servo toward to targetPosition
+          if (targetPosition < dirServoPosition)
+            increment = -servoStep;
+          else
+            increment = servoStep;
+
+          if (!servoMoving) {
+            myDirServoTimer.reset();
+            myDirServoTimer.enable();
+            Serial.println("Bt: "+String(targetPosition)+" c: "+String(dirServoPosition)+" i: "+String(increment));
+            servoMoving = true;
+          }
+          else {
+            if (lastInc != increment) {
+              Serial.println("t: "+String(targetPosition)+" c: "+String(dirServoPosition)+" i: "+String(increment));
+              lastInc = increment;
+            }
+          }
+        }
+        else {
+          // If target is close (within 10?) to servo then disable servoTimer and start
+          // 2 second timer. On expiration of timer, if no further movement, then swing
+          // second servo.
+          if (servoMoving) {
+            myDirServoTimer.disable();
+            servoMoving = false;
+            Serial.println("Et: "+String(targetPosition)+" c: "+String(dirServoPosition)+" i: "+String(increment));
+            myStationaryTimer.reset();
+            myStationaryTimer.enable();
+          }
+        }
+        
         if (!ledOn && (offWaitTime < millis())) {
           digitalWrite(ledPin, HIGH); // Turn on the LED
-          digitalWrite(relayPin, HIGH); // Turn on the relay to activate the external light
-          Serial.println("Both HIGH!");
+          Serial.println("ON");
           ledOn = 1;
           offWaitTime = 0;
           myLedTimer.reset();
@@ -121,25 +183,11 @@ void printResult(HUSKYLENSResult result) {
   // Your printResult function remains the same
 }
 
+// myDirServoTimer runs every dirServoDelayTime and when it runs it will
+// change dirServoPosition by increment and then set new dirServoPosition.
 void adjustServo() {
-  int increment = (targetPosition - servoPosition > 0) ? servoStep : -servoStep;
-  if (increment == servoStep)
-    digitalWrite(debugPin, HIGH);
-  if (servoPosition != targetPosition) {
-    servoPosition += increment;
-    moveServo(servoPosition);
-  }
-  else {
-    digitalWrite(debugPin, HIGH);
-    myServoTimer.disable();
-  }
-}
-
-void moveServo(int angle) {
-  int pulseWidth = map(angle, 0, 180, 1000, 2000); // Convert angle to pulse width
-  digitalWrite(servoPin, HIGH);
-  delayMicroseconds(pulseWidth);
-  digitalWrite(servoPin, LOW);
+  dirServoPosition += increment;
+  myservo.write(dirServoPosition);
 }
 
 void sendCommandToHuskyLens(String command, String parameter) {
@@ -152,9 +200,21 @@ void sendCommandToHuskyLens(String command, String parameter) {
 void ledOff()
 {
   digitalWrite(ledPin, LOW); // Turn off the LED
-  digitalWrite(relayPin, LOW); // Turn off the relay to deactivate the external light
   ledOn = 0;
-  Serial.println("Both LOW!");
+  Serial.println("OFF");
   myLedTimer.disable();
   offWaitTime = millis() + ledOffTime;
+}
+
+void throwBall()
+{
+  myStationaryTimer.disable();
+  // run second servo full swing, wait, and then swing back.
+  //myThrowTimer.reset();
+  //myThrowTimer.enable();
+}
+
+void unthrowBall()
+{
+  //myThrowTimer.disable();
 }
