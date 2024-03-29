@@ -1,5 +1,4 @@
 #include "HUSKYLENS.h"
-#include "SoftwareSerial.h"
 #include "TimerEvent.h"
 
 #include "PWMServo.h"
@@ -8,66 +7,70 @@
 // the servo can do 0 to 180 degrees.
 
 HUSKYLENS huskylens;
-SoftwareSerial mySerial(10, 11); // RX, TX
-TimerEvent myLedTimer;
-TimerEvent myStationaryTimer;
-TimerEvent myDirServoTimer;
-PWMServo myservo;
+int savedObjectID = 1; // Change this to the ID of the saved object you want to track
 
-const int debugPin = 8; // debug signal pin
-const int dirServoPin = SERVO_PIN_B; // Servo signal pin
-const int ledPin = 13; // LED control pin
-const int detectionPauseDuration = 5000; // Pause duration in milliseconds
-
-int dirServoPosition = 90; // Initial servo position
-int servoMin = 5;
+int servoMin = 2;
 int servoMax = 180;
-float servoSlope = 11.1112;
-int servoOffset = 500;
 
+TimerEvent directionServoTimer;
+PWMServo directionServo;
+const int directionServoPin = SERVO_PIN_B; // Servo signal pin
+int directionServoPosition = 90; // Initial servo position
 int targetPosition = 0;
-int lastTarget = 0;
+int servoStep = 1;
 int increment = 0;
 int lastInc = 0;
 bool servoMoving = false; // Flag to track object detection
+unsigned long directionServoDelayTime = 15;
 
-int savedObjectID = 1; // Change this to the ID of the saved object you want to track
+TimerEvent stationaryTimer;
+unsigned long stationaryWaitTime = 2000;
+
+TimerEvent resetBallGateTimer;
+PWMServo ballGateServo;
+const int ballGateServoPin = SERVO_PIN_A; // Servo signal pin
+unsigned long resetBallWaitTime = 1000;
+
+const int ledPin = 13; // LED control pin
+TimerEvent ledTimer;
+bool ledOn = 0;
+unsigned long ledOffWaitTime = 0;
+unsigned long ledOffTime = 1000;
+unsigned long ledOnTime = 1000;
+
+unsigned long offPrintTime = 0;
+unsigned long printOffTime = 3000;
+const int debugPin = 8; // debug signal pin
 
 bool hRequest = 0;  // Assume that serial comm is not okay
 bool hLearned = 1;  // Assume that learning has been done
 bool hAvailable = 1;  // Assume nothing is available
-bool ledOn = 0;
-unsigned long offWaitTime = 0;
-unsigned long offPrintTime = 0;
-unsigned long printOffTime = 3000;
-unsigned long now = 0;
-unsigned long ledOffTime = 1000;
-unsigned long ledOnTime = 1000;
-unsigned long stationaryWaitTime = 2000;
-unsigned long dirServoDelayTime = 15;
-int servoStep = 1;
 
 void printResult(HUSKYLENSResult result);
 void smoothMoveServo(int targetPosition);
 void moveServo(int angle);
 void sendCommandToHuskyLens(String command, String parameter);
 void ledOff();
-void adjustServo();
+void adjustDirectionServo();
 
 void setup() {
   Serial.begin(115200);
-  mySerial.begin(9600);
+  Serial2.begin(9600);
 
-  while (!huskylens.begin(mySerial)) {
+  while (!huskylens.begin(Serial2)) {
       Serial.println(F("Begin failed!"));
       Serial.println(F("1. Please recheck the \"Protocol Type\" in HUSKYLENS (General Settings >> Protocol Type >> Serial 9600)"));
       Serial.println(F("2. Please recheck the connection."));
       delay(100);
       hRequest = 1;
   }
-  myservo.attach(dirServoPin, 500, 2500);
-  pinMode(dirServoPin, OUTPUT);
-  myservo.write(dirServoPosition);
+  directionServo.attach(directionServoPin, 500, 2500);
+  pinMode(directionServoPin, OUTPUT);
+  directionServo.write(directionServoPosition);
+
+  ballGateServo.attach(ballGateServoPin, 500, 2500);
+  pinMode(ballGateServoPin, OUTPUT);
+  ballGateServo.write(servoMin);
 
   pinMode(ledPin, OUTPUT);
   digitalWrite(ledPin, LOW); // Ensure the LED is initially off
@@ -75,14 +78,17 @@ void setup() {
   digitalWrite(debugPin, LOW);
 
   // onboard LED/GPIO 13 timer
-  myLedTimer.set(ledOnTime, &ledOff);
-  myLedTimer.disable();
+  ledTimer.set(ledOnTime, &ledOff);
+  ledTimer.disable();
 
-  myStationaryTimer.set(stationaryWaitTime, &throwBall);
-  myStationaryTimer.disable();
+  stationaryTimer.set(stationaryWaitTime, &releaseBall);
+  stationaryTimer.disable();
 
-  myDirServoTimer.set(dirServoDelayTime, &adjustServo);
-  myDirServoTimer.disable();
+  resetBallGateTimer.set(resetBallWaitTime, &resetBallGate);
+  resetBallGateTimer.disable();
+
+  directionServoTimer.set(directionServoDelayTime, &adjustDirectionServo);
+  directionServoTimer.disable();
 
   // Configure HuskyLens to recognize a specific object
   sendCommandToHuskyLens("SET_RECOGNITION_MODE", "LEARNED_OBJECT_1");
@@ -91,9 +97,10 @@ void setup() {
 }
 
 void loop() {
-  myLedTimer.update();
-  myStationaryTimer.update();
-  myDirServoTimer.update();
+  ledTimer.update();
+  stationaryTimer.update();
+  resetBallGateTimer.update();
+  directionServoTimer.update();
 
   if (!huskylens.request()) {
     if (hRequest) Serial.println(F("Fail to request data from HUSKYLENS, recheck the connection!"));
@@ -109,9 +116,8 @@ void loop() {
     if (hAvailable) Serial.println(F("No block"));
     hAvailable = 0;
     if (servoMoving)
-      myDirServoTimer.disable();
+      directionServoTimer.disable();
     servoMoving = false;
-    lastTarget = 0;
     return;
   }
   else {
@@ -127,27 +133,27 @@ void loop() {
         targetPosition = map(posX, 0, 320, 180, 0);
 
         if (offPrintTime < millis()) {
-          Serial.println("t: "+String(targetPosition)+" c: "+String(dirServoPosition));
+          Serial.println("t: "+String(targetPosition)+" c: "+String(directionServoPosition));
           offPrintTime = millis() + printOffTime;
         }
 
         // The below will run every loop time if a object is detected.
-        if (abs(targetPosition - dirServoPosition) >= 10) {
+        if (abs(targetPosition - directionServoPosition) >= 10) {
           // Start moving the servo toward to targetPosition
-          if (targetPosition < dirServoPosition)
+          if (targetPosition < directionServoPosition)
             increment = -servoStep;
           else
             increment = servoStep;
 
           if (!servoMoving) {
-            myDirServoTimer.reset();
-            myDirServoTimer.enable();
-            Serial.println("Bt: "+String(targetPosition)+" c: "+String(dirServoPosition)+" i: "+String(increment));
+            directionServoTimer.reset();
+            directionServoTimer.enable();
+            Serial.println("Bt: "+String(targetPosition)+" c: "+String(directionServoPosition)+" i: "+String(increment));
             servoMoving = true;
           }
           else {
             if (lastInc != increment) {
-              Serial.println("t: "+String(targetPosition)+" c: "+String(dirServoPosition)+" i: "+String(increment));
+              Serial.println("t: "+String(targetPosition)+" c: "+String(directionServoPosition)+" i: "+String(increment));
               lastInc = increment;
             }
           }
@@ -157,21 +163,21 @@ void loop() {
           // 2 second timer. On expiration of timer, if no further movement, then swing
           // second servo.
           if (servoMoving) {
-            myDirServoTimer.disable();
+            directionServoTimer.disable();
             servoMoving = false;
-            Serial.println("Et: "+String(targetPosition)+" c: "+String(dirServoPosition)+" i: "+String(increment));
-            myStationaryTimer.reset();
-            myStationaryTimer.enable();
+            Serial.println("Et: "+String(targetPosition)+" c: "+String(directionServoPosition)+" i: "+String(increment));
+            stationaryTimer.reset();
+            stationaryTimer.enable();
           }
         }
         
-        if (!ledOn && (offWaitTime < millis())) {
+        if (!ledOn && (ledOffWaitTime < millis())) {
           digitalWrite(ledPin, HIGH); // Turn on the LED
           Serial.println("ON");
           ledOn = 1;
-          offWaitTime = 0;
-          myLedTimer.reset();
-          myLedTimer.enable();
+          ledOffWaitTime = 0;
+          ledTimer.reset();
+          ledTimer.enable();
         }
       }
     }
@@ -183,17 +189,18 @@ void printResult(HUSKYLENSResult result) {
   // Your printResult function remains the same
 }
 
-// myDirServoTimer runs every dirServoDelayTime and when it runs it will
-// change dirServoPosition by increment and then set new dirServoPosition.
-void adjustServo() {
-  dirServoPosition += increment;
-  myservo.write(dirServoPosition);
+// directionServoTimer runs every directionServoDelayTime and when it runs it will
+// change directionServoPosition by increment and then set new directionServoPosition.
+void adjustDirectionServo() {
+  directionServoPosition += increment;
+  if ((directionServoPosition <= servoMax) && (directionServoPosition >= servoMin))
+    directionServo.write(directionServoPosition);
 }
 
 void sendCommandToHuskyLens(String command, String parameter) {
   // Craft and send the command to HuskyLens
   String fullCommand = command + " " + parameter + "\n";
-  mySerial.print(fullCommand);
+  Serial2.print(fullCommand);
   delay(100);  // Give time for the HuskyLens to process the command
 }
 
@@ -202,19 +209,21 @@ void ledOff()
   digitalWrite(ledPin, LOW); // Turn off the LED
   ledOn = 0;
   Serial.println("OFF");
-  myLedTimer.disable();
-  offWaitTime = millis() + ledOffTime;
+  ledTimer.disable();
+  ledOffWaitTime = millis() + ledOffTime;
 }
 
-void throwBall()
+void releaseBall()
 {
-  myStationaryTimer.disable();
+  stationaryTimer.disable();
   // run second servo full swing, wait, and then swing back.
-  //myThrowTimer.reset();
-  //myThrowTimer.enable();
+  ballGateServo.write(servoMax);
+  resetBallGateTimer.reset();
+  resetBallGateTimer.enable();
 }
 
-void unthrowBall()
+void resetBallGate()
 {
-  //myThrowTimer.disable();
+  resetBallGateTimer.disable();
+  ballGateServo.write(servoMin);
 }
