@@ -90,9 +90,6 @@ void setup() {
   directionServoTimer.set(directionServoDelayTime, &adjustDirectionServo);
   directionServoTimer.disable();
 
-  // Configure HuskyLens to recognize a specific object
-  sendCommandToHuskyLens("SET_RECOGNITION_MODE", "LEARNED_OBJECT_1");
-
   Serial.println("Setup Done!");
 }
 
@@ -102,86 +99,55 @@ void loop() {
   resetBallGateTimer.update();
   directionServoTimer.update();
 
-  if (!huskylens.request()) {
-    if (hRequest) Serial.println(F("Fail to request data from HUSKYLENS, recheck the connection!"));
-    hRequest = 0;
-    return;
+  if (Serial.available() > 0) {
+    String input = "";
+    input = Serial.readStringUntil("/n");
+    int posX = input.toInt();
+    if ((posX >= servoMin) && (posX <= servoMax)) {
+      Serial.print("I received: ");
+      Serial.println(posX);
+
+      // Invert the mapping to align servo movement with object position
+      targetPosition = map(posX, 0, 320, 180, 0);
+      hAvailable = 1;
+    }
+    else
+      Serial.println("invalid number");
   }
-  else if (!huskylens.isLearned()) {
-    if (hLearned) Serial.println(F("Nothing learned, press learn button on HUSKYLENS to learn one!"));
-    hLearned = 0;
-    return;
+
+  if (offPrintTime < millis()) {
+    Serial.println("t: "+String(targetPosition)+" c: "+String(directionServoPosition));
+    offPrintTime = millis() + printOffTime;
   }
-  else if (!huskylens.available()) {
-    if (hAvailable) Serial.println(F("No block"));
-    hAvailable = 0;
-    if (servoMoving)
-      directionServoTimer.disable();
-    servoMoving = false;
-    return;
-  }
-  else {
-    hAvailable = 1;
-    do {
-      HUSKYLENSResult result = huskylens.read();
-      printResult(result);
 
-      if (result.command == COMMAND_RETURN_BLOCK && result.ID == savedObjectID) {
-        int posX = result.xCenter; // Get X position of the object
-        
-        // Invert the mapping to align servo movement with object position
-        targetPosition = map(posX, 0, 320, 180, 0);
+  if (abs(targetPosition - directionServoPosition) >= 10) {
+    if (targetPosition < directionServoPosition)
+      increment = -servoStep;
+    else
+      increment = servoStep;
 
-        if (offPrintTime < millis()) {
-          Serial.println("t: "+String(targetPosition)+" c: "+String(directionServoPosition));
-          offPrintTime = millis() + printOffTime;
-        }
-
-        // The below will run every loop time if a object is detected.
-        if (abs(targetPosition - directionServoPosition) >= 10) {
-          // Start moving the servo toward to targetPosition
-          if (targetPosition < directionServoPosition)
-            increment = -servoStep;
-          else
-            increment = servoStep;
-
-          if (!servoMoving) {
-            directionServoTimer.reset();
-            directionServoTimer.enable();
-            Serial.println("Bt: "+String(targetPosition)+" c: "+String(directionServoPosition)+" i: "+String(increment));
-            servoMoving = true;
-          }
-          else {
-            if (lastInc != increment) {
-              Serial.println("t: "+String(targetPosition)+" c: "+String(directionServoPosition)+" i: "+String(increment));
-              lastInc = increment;
-            }
-          }
-        }
-        else {
-          // If target is close (within 10?) to servo then disable servoTimer and start
-          // 2 second timer. On expiration of timer, if no further movement, then swing
-          // second servo.
-          if (servoMoving) {
-            directionServoTimer.disable();
-            servoMoving = false;
-            Serial.println("Et: "+String(targetPosition)+" c: "+String(directionServoPosition)+" i: "+String(increment));
-            stationaryTimer.reset();
-            stationaryTimer.enable();
-          }
-        }
-        
-        if (!ledOn && (ledOffWaitTime < millis())) {
-          digitalWrite(ledPin, HIGH); // Turn on the LED
-          Serial.println("ON");
-          ledOn = 1;
-          ledOffWaitTime = 0;
-          ledTimer.reset();
-          ledTimer.enable();
-        }
+    if (!servoMoving) {
+      directionServoTimer.reset();
+      directionServoTimer.enable();
+      Serial.println("Bt: "+String(targetPosition)+" c: "+String(directionServoPosition)+" i: "+String(increment));
+      servoMoving = true;
+    }
+    else {
+      if (lastInc != increment) {
+        Serial.println("t: "+String(targetPosition)+" c: "+String(directionServoPosition)+" i: "+String(increment));
+        lastInc = increment;
       }
     }
-    while (huskylens.available());
+  }
+  else {
+    // If target is close (within 10?) to servo then disable servoTimer and start
+    // 2 second timer. On expiration of timer, if no further movement, then swing
+    // second servo.
+    if (servoMoving) {
+      directionServoTimer.disable();
+      servoMoving = false;
+      Serial.println("Et: "+String(targetPosition)+" c: "+String(directionServoPosition)+" i: "+String(increment));
+    }
   }
 }
 
