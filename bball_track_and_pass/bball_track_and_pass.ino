@@ -9,14 +9,14 @@
 HUSKYLENS huskylens;
 int savedObjectID = 1; // Change this to the ID of the saved object you want to track
 
-int servoMin = 2;
+int servoMin = 3;
 int servoMax = 180;
 
 TimerEvent directionServoTimer;
 PWMServo directionServo;
 const int directionServoPin = SERVO_PIN_B; // Servo signal pin
-int directionServoPosition = 90; // Initial servo position
-int targetPosition = 0;
+int directionServoPosition = (servoMax-servoMin)/2; // Initial servo position
+int targetPosition = directionServoPosition;
 int servoStep = 1;
 int increment = 0;
 int lastInc = 0;
@@ -55,15 +55,7 @@ void adjustDirectionServo();
 
 void setup() {
   Serial.begin(115200);
-  Serial2.begin(9600);
-
-  while (!huskylens.begin(Serial2)) {
-      Serial.println(F("Begin failed!"));
-      Serial.println(F("1. Please recheck the \"Protocol Type\" in HUSKYLENS (General Settings >> Protocol Type >> Serial 9600)"));
-      Serial.println(F("2. Please recheck the connection."));
-      delay(100);
-      hRequest = 1;
-  }
+  
   directionServo.attach(directionServoPin, 500, 2500);
   pinMode(directionServoPin, OUTPUT);
   directionServo.write(directionServoPosition);
@@ -100,6 +92,7 @@ void loop() {
   directionServoTimer.update();
 
   if (Serial.available() > 0) {
+    Serial.println("Serial");
     String input = "";
     input = Serial.readStringUntil("/n");
     int posX = input.toInt();
@@ -108,19 +101,22 @@ void loop() {
       Serial.println(posX);
 
       // Invert the mapping to align servo movement with object position
-      targetPosition = map(posX, 0, 320, 180, 0);
+//      targetPosition = map(posX, 0, 320, 180, 0);
+      targetPosition = posX;
       hAvailable = 1;
     }
     else
       Serial.println("invalid number");
   }
 
+#if 0
   if (offPrintTime < millis()) {
-    Serial.println("t: "+String(targetPosition)+" c: "+String(directionServoPosition));
+    Serial.println("t: "+String(targetPosition)+" s: "+String(directionServoPosition));
     offPrintTime = millis() + printOffTime;
   }
+#endif
 
-  if (abs(targetPosition - directionServoPosition) >= 10) {
+  if (abs(targetPosition - directionServoPosition) != 0) {
     if (targetPosition < directionServoPosition)
       increment = -servoStep;
     else
@@ -129,12 +125,12 @@ void loop() {
     if (!servoMoving) {
       directionServoTimer.reset();
       directionServoTimer.enable();
-      Serial.println("Bt: "+String(targetPosition)+" c: "+String(directionServoPosition)+" i: "+String(increment));
+      Serial.println("Bt: "+String(targetPosition)+" s: "+String(directionServoPosition)+" i: "+String(increment));
       servoMoving = true;
     }
     else {
       if (lastInc != increment) {
-        Serial.println("t: "+String(targetPosition)+" c: "+String(directionServoPosition)+" i: "+String(increment));
+        Serial.println("t: "+String(targetPosition)+" s: "+String(directionServoPosition)+" i: "+String(increment));
         lastInc = increment;
       }
     }
@@ -146,7 +142,9 @@ void loop() {
     if (servoMoving) {
       directionServoTimer.disable();
       servoMoving = false;
-      Serial.println("Et: "+String(targetPosition)+" c: "+String(directionServoPosition)+" i: "+String(increment));
+      Serial.println("Et: "+String(targetPosition)+" s: "+String(directionServoPosition)+" i: "+String(increment));
+//      stationaryTimer.reset();
+//      stationaryTimer.enable();
     }
   }
 }
