@@ -92,29 +92,19 @@ void loop() {
   directionServoTimer.update();
 
   if (Serial.available() > 0) {
-    Serial.println("Serial");
     String input = "";
     input = Serial.readStringUntil("/n");
-    int posX = input.toInt();
-    if ((posX >= servoMin) && (posX <= servoMax)) {
+    targetPosition = input.toInt();
+    if ((targetPosition >= servoMin) && (targetPosition <= servoMax)) {
       Serial.print("I received: ");
-      Serial.println(posX);
-
-      // Invert the mapping to align servo movement with object position
-//      targetPosition = map(posX, 0, 320, 180, 0);
-      targetPosition = posX;
-      hAvailable = 1;
+      Serial.println(targetPosition);
     }
-    else
+    else {
       Serial.println("invalid number");
+      targetPosition = directionServoPosition;
+      return;
+    }
   }
-
-#if 0
-  if (offPrintTime < millis()) {
-    Serial.println("t: "+String(targetPosition)+" s: "+String(directionServoPosition));
-    offPrintTime = millis() + printOffTime;
-  }
-#endif
 
   if (abs(targetPosition - directionServoPosition) != 0) {
     if (targetPosition < directionServoPosition)
