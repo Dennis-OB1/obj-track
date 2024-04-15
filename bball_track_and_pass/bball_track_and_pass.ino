@@ -25,6 +25,7 @@ unsigned long directionServoDelayTime = 15;
 
 TimerEvent stationaryTimer;
 unsigned long stationaryWaitTime = 2000;
+int stationary = 0;
 
 TimerEvent resetBallGateTimer;
 PWMServo ballGateServo;
@@ -91,51 +92,17 @@ void loop() {
   resetBallGateTimer.update();
   directionServoTimer.update();
 
-  if (Serial.available() > 0) {
+  if ((stationary == 0) && (Serial.available() > 0)) {
     String input = "";
     input = Serial.readStringUntil("/n");
-    targetPosition = input.toInt();
-    if ((targetPosition >= servoMin) && (targetPosition <= servoMax)) {
-      Serial.print("I received: ");
-      Serial.println(targetPosition);
+    stationary = input.toInt();
+    if (stationary != 0) {
+      Serial.println("stationary");
+      stationaryTimer.reset();
+      stationaryTimer.enable();
     }
-    else {
-      Serial.println("invalid number");
-      targetPosition = directionServoPosition;
-      return;
-    }
-  }
-
-  if (abs(targetPosition - directionServoPosition) != 0) {
-    if (targetPosition < directionServoPosition)
-      increment = -servoStep;
     else
-      increment = servoStep;
-
-    if (!servoMoving) {
-      directionServoTimer.reset();
-      directionServoTimer.enable();
-      Serial.println("Bt: "+String(targetPosition)+" s: "+String(directionServoPosition)+" i: "+String(increment));
-      servoMoving = true;
-    }
-    else {
-      if (lastInc != increment) {
-        Serial.println("t: "+String(targetPosition)+" s: "+String(directionServoPosition)+" i: "+String(increment));
-        lastInc = increment;
-      }
-    }
-  }
-  else {
-    // If target is close (within 10?) to servo then disable servoTimer and start
-    // 2 second timer. On expiration of timer, if no further movement, then swing
-    // second servo.
-    if (servoMoving) {
-      directionServoTimer.disable();
-      servoMoving = false;
-      Serial.println("Et: "+String(targetPosition)+" s: "+String(directionServoPosition)+" i: "+String(increment));
-//      stationaryTimer.reset();
-//      stationaryTimer.enable();
-    }
+      Serial.println("not stationary");
   }
 }
 
@@ -180,4 +147,5 @@ void resetBallGate()
 {
   resetBallGateTimer.disable();
   ballGateServo.write(servoMin);
+  stationary = 0;
 }
