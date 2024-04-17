@@ -9,7 +9,7 @@
 HUSKYLENS huskylens;
 int savedObjectID = 1; // Change this to the ID of the saved object you want to track
 
-int servoMin = 3;
+int servoMin = 0;
 int servoMax = 180;
 
 TimerEvent directionServoTimer;
@@ -21,7 +21,7 @@ int servoStep = 1;
 int increment = 0;
 int lastInc = 0;
 bool servoMoving = false; // Flag to track object detection
-unsigned long directionServoDelayTime = 15;
+unsigned long directionServoDelayTime = 20;
 
 TimerEvent stationaryTimer;
 unsigned long stationaryWaitTime = 2000;
@@ -57,11 +57,11 @@ void setup() {
   Serial.begin(115200);
   
   directionServo.attach(directionServoPin, 500, 2500);
-  pinMode(directionServoPin, OUTPUT);
   directionServo.write(directionServoPosition);
+  delay(1000);
+  directionServo.detach();
 
   ballGateServo.attach(ballGateServoPin, 500, 2500);
-  pinMode(ballGateServoPin, OUTPUT);
   ballGateServo.write(servoMin);
 
   pinMode(ledPin, OUTPUT);
@@ -113,6 +113,7 @@ void loop() {
       increment = servoStep;
 
     if (!servoMoving) {
+      directionServo.attach(directionServoPin, 500, 2500);
       directionServoTimer.reset();
       directionServoTimer.enable();
       Serial.println("Bt: "+String(targetPosition)+" s: "+String(directionServoPosition)+" i: "+String(increment));
@@ -133,6 +134,7 @@ void loop() {
       directionServoTimer.disable();
       servoMoving = false;
       Serial.println("Et: "+String(targetPosition)+" s: "+String(directionServoPosition)+" i: "+String(increment));
+      directionServo.detach();
 //      stationaryTimer.reset();
 //      stationaryTimer.enable();
     }
