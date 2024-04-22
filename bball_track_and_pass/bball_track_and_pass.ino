@@ -7,7 +7,15 @@
 // the servo can do 0 to 180 degrees.
 
 HUSKYLENS huskylens;
+#define HUSKYLENS
+
 int savedObjectID = 1; // Change this to the ID of the saved object you want to track
+
+int stopSpeed = 90;
+int speedStep = 5;
+int curSpeed = stopSpeed;
+int targetSpeed = stopSpeed;
+int lastTarget = -1;
 
 int servoMin = 0;
 int servoMax = 180;
@@ -15,11 +23,6 @@ int servoMax = 180;
 TimerEvent directionServoTimer;
 PWMServo directionServo;
 const int directionServoPin = SERVO_PIN_B; // Servo signal pin
-int directionServoPosition = (servoMax-servoMin)/2; // Initial servo position
-int targetPosition = directionServoPosition;
-int servoStep = 1;
-int increment = 0;
-int lastInc = 0;
 bool servoMoving = false; // Flag to track object detection
 unsigned long directionServoDelayTime = 20;
 
@@ -39,7 +42,7 @@ unsigned long ledOffTime = 1000;
 unsigned long ledOnTime = 1000;
 
 unsigned long offPrintTime = 0;
-unsigned long printOffTime = 3000;
+unsigned long printOffTime = 5000;
 const int debugPin = 8; // debug signal pin
 
 bool hRequest = 0;  // Assume that serial comm is not okay
@@ -55,13 +58,24 @@ void adjustDirectionServo();
 
 void setup() {
   Serial.begin(115200);
-  
+
+#ifdef HUSKYLENS
+  Serial2.begin(9600);
+  while (!huskylens.begin(Serial2)) {
+      Serial.println(F("Begin failed!"));
+      Serial.println(F("1. Please recheck the \"Protocol Type\" in HUSKYLENS (General Settings >> Protocol Type >> Serial 9600)"));
+      Serial.println(F("2. Please recheck the connection."));
+      delay(100);
+      hRequest = 1;
+  }
+#endif
+
   directionServo.attach(directionServoPin, 500, 2500);
-  directionServo.write(directionServoPosition);
-  delay(1000);
-  directionServo.detach();
+  pinMode(directionServoPin, OUTPUT);
+  directionServo.write(stopSpeed);
 
   ballGateServo.attach(ballGateServoPin, 500, 2500);
+  pinMode(ballGateServoPin, OUTPUT);
   ballGateServo.write(servoMin);
 
   pinMode(ledPin, OUTPUT);
@@ -82,6 +96,11 @@ void setup() {
   directionServoTimer.set(directionServoDelayTime, &adjustDirectionServo);
   directionServoTimer.disable();
 
+#ifdef HUSKYLENS
+  // Configure HuskyLens to recognize a specific object
+  sendCommandToHuskyLens("SET_RECOGNITION_MODE", "LEARNED_OBJECT_1");
+#endif
+
   Serial.println("Setup Done!");
 }
 
@@ -91,41 +110,33 @@ void loop() {
   resetBallGateTimer.update();
   directionServoTimer.update();
 
-  if (Serial.available() > 0) {
-    String input = "";
-    input = Serial.readStringUntil("/n");
-    targetPosition = input.toInt();
-    if ((targetPosition >= servoMin) && (targetPosition <= servoMax)) {
-      Serial.print("I received: ");
-      Serial.println(targetPosition);
-    }
-    else {
-      Serial.println("invalid number");
-      targetPosition = directionServoPosition;
-      return;
-    }
+#ifdef HUSKYLENS
+  targetSpeed = getHuskyLensData();
+#else
+  targetSpeed = getSerialInputData();
+#endif
+
+  if (offPrintTime < millis()) {
+    Serial.println("t: "+String(targetSpeed)+" c: "+String(curSpeed));
+    offPrintTime = millis() + printOffTime;
   }
 
-  if (abs(targetPosition - directionServoPosition) != 0) {
-    if (targetPosition < directionServoPosition)
-      increment = -servoStep;
-    else
-      increment = servoStep;
-
+  if (targetSpeed != curSpeed) {
     if (!servoMoving) {
-      directionServo.attach(directionServoPin, 500, 2500);
       directionServoTimer.reset();
       directionServoTimer.enable();
-      Serial.println("Bt: "+String(targetPosition)+" s: "+String(directionServoPosition)+" i: "+String(increment));
+      Serial.println("Bt: "+String(targetSpeed)+" c: "+String(curSpeed));
       servoMoving = true;
+      lastTarget = targetSpeed;
     }
-    else {
-      if (lastInc != increment) {
-        Serial.println("t: "+String(targetPosition)+" s: "+String(directionServoPosition)+" i: "+String(increment));
-        lastInc = increment;
-      }
+    else if (lastTarget != targetSpeed) {
+      Serial.println("Ct: "+String(targetSpeed)+" c: "+String(curSpeed));
+      lastTarget = targetSpeed;
     }
   }
+return;
+
+#if 0
   else {
     // If target is close (within 10?) to servo then disable servoTimer and start
     // 2 second timer. On expiration of timer, if no further movement, then swing
@@ -134,23 +145,88 @@ void loop() {
       directionServoTimer.disable();
       servoMoving = false;
       Serial.println("Et: "+String(targetPosition)+" s: "+String(directionServoPosition)+" i: "+String(increment));
-      directionServo.detach();
+      //directionServo.detach();
 //      stationaryTimer.reset();
 //      stationaryTimer.enable();
     }
   }
+#endif
 }
 
-void printResult(HUSKYLENSResult result) {
+// HuskyLens will give us the current position of the target.
+// It will be between 0 and 320. If < 160 we must turn left;
+// if > 160 we must turn right; if 160 we are centered and so stop.
+int getHuskyLensData() {
+  int tSpeed = stopSpeed;
+  if (!huskylens.request()) {
+    if (hRequest) Serial.println(F("Fail to request data from HUSKYLENS, recheck the connection!"));
+    hRequest = 0;
+  }
+  else if (!huskylens.isLearned()) {
+    if (hLearned) Serial.println(F("Nothing learned, press learn button on HUSKYLENS to learn one!"));
+    hLearned = 0;
+  }
+  else if (!huskylens.available()) {
+    if (hAvailable) Serial.println(F("No block"));
+    hAvailable = 0;
+  }
+  else {
+    tSpeed = targetSpeed;
+    hAvailable = 1;
+    HUSKYLENSResult result = huskylens.read();
+    printHuskyLensResult(result);
+
+    if (result.command == COMMAND_RETURN_BLOCK && result.ID == savedObjectID) {
+      int posX = result.xCenter; // Get X position of the object
+      if (posX < 160) {
+        if (tSpeed > stopSpeed) {
+          if (tSpeed < servoMax) tSpeed += speedStep;
+        }
+        else
+          tSpeed = stopSpeed + (2*speedStep);
+      } else if (posX > 160) {
+        if (tSpeed < stopSpeed) {
+          if (tSpeed > servoMin) tSpeed -= speedStep;
+        }
+        else
+          tSpeed = stopSpeed - (2*speedStep);
+      }
+      else {
+        tSpeed = stopSpeed;
+      }
+    }
+  }
+  return tSpeed;
+}
+
+// Unless the user inputs data, curSpeed will be returned
+// if 'l' then left; if 'r' then right; if 's' then stop
+int getSerialInputData() {
+  int tSpeed = targetSpeed;
+  if (Serial.available() > 0) {
+    int input = 0;
+    input = Serial.read();
+    if (input == 108) {
+      if (tSpeed > stopSpeed)
+        if (tSpeed < servoMax) tSpeed += speedStep;
+      else
+        tSpeed = stopSpeed + (2*speedStep);
+    }
+    else if (input == 114) {
+      if (tSpeed < stopSpeed)
+        if (tSpeed > servoMin) tSpeed -= speedStep;
+      else
+        tSpeed = stopSpeed - (2*speedStep);
+    }
+    else if (input == 115) {
+      tSpeed = stopSpeed;
+    }
+  }
+  return tSpeed;
+}
+
+void printHuskyLensResult(HUSKYLENSResult result) {
   // Your printResult function remains the same
-}
-
-// directionServoTimer runs every directionServoDelayTime and when it runs it will
-// change directionServoPosition by increment and then set new directionServoPosition.
-void adjustDirectionServo() {
-  directionServoPosition += increment;
-  if ((directionServoPosition <= servoMax) && (directionServoPosition >= servoMin))
-    directionServo.write(directionServoPosition);
 }
 
 void sendCommandToHuskyLens(String command, String parameter) {
@@ -158,6 +234,19 @@ void sendCommandToHuskyLens(String command, String parameter) {
   String fullCommand = command + " " + parameter + "\n";
   Serial2.print(fullCommand);
   delay(100);  // Give time for the HuskyLens to process the command
+}
+
+// directionServoTimer runs every directionServoDelayTime and when it runs it will
+// change directionServoPosition by increment and then set new directionServoPosition.
+void adjustDirectionServo() {
+  if (targetSpeed < curSpeed)
+    curSpeed -= speedStep;
+  else if (targetSpeed > curSpeed)
+    curSpeed += speedStep;
+  else
+    return;
+  if ((curSpeed <= servoMax) && (curSpeed  >= servoMin))
+    directionServo.write(curSpeed);
 }
 
 void ledOff()
