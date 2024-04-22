@@ -11,43 +11,52 @@ HUSKYLENS huskylens;
 
 int savedObjectID = 1; // Change this to the ID of the saved object you want to track
 
-int stopSpeed = 90;
-int speedStep = 5;
-int curSpeed = stopSpeed;
-int targetSpeed = stopSpeed;
+#define STOP_SPEED 90
+#define SPEED_STEP 5
+int curSpeed = STOP_SPEED;
+int targetSpeed = STOP_SPEED;
 int lastTarget = -1;
 
-int servoMin = 0;
-int servoMax = 180;
+#define SERVO_MIN 0
+#define SERVO_MAX 180
 
+#define DIR_SERVO_PIN SERVO_PIN_B // Servo signal pin
+#define DIR_SERVO_DELAY_TIME 20
 TimerEvent directionServoTimer;
 PWMServo directionServo;
-const int directionServoPin = SERVO_PIN_B; // Servo signal pin
 bool servoMoving = false; // Flag to track object detection
-unsigned long directionServoDelayTime = 20;
 
+#define STATIONARY_WAIT_TIME 2000
 TimerEvent stationaryTimer;
-unsigned long stationaryWaitTime = 2000;
 
+#define BALL_GATE_SERVO_PIN SERVO_PIN_A // Servo signal pin
+#define RESET_BALL_WAIT_TIME 1000
 TimerEvent resetBallGateTimer;
 PWMServo ballGateServo;
-const int ballGateServoPin = SERVO_PIN_A; // Servo signal pin
-unsigned long resetBallWaitTime = 1000;
 
-const int ledPin = 13; // LED control pin
+#define TRIG_PIN 9 // Define the trig pin of the ultrasonic sensor
+#define ECHO_PIN 10 // Define the echo pin of the ultrasonic sensor
+#define DISTANCE_THRESHOLD 5 // Define the distance threshold in centimeters
+#define TRIG_TIME 100
+#define TRIG_OFF_TIME 10
+TimerEvent trigTimer;
+TimerEvent trigOffTimer;
+
+#define LED_PIN 13
+#define LED_OFF_TIME 1000
+#define LED_ON_TIME 1000
 TimerEvent ledTimer;
 bool ledOn = 0;
 unsigned long ledOffWaitTime = 0;
-unsigned long ledOffTime = 1000;
-unsigned long ledOnTime = 1000;
 
-unsigned long offPrintTime = 0;
-unsigned long printOffTime = 5000;
-const int debugPin = 8; // debug signal pin
+#define PRINT_OFF_TIME 5000
+#define DEBUG_PIN 8  // debug signal pin
+unsigned long offPrintWaitTime = 0;
 
 bool hRequest = 0;  // Assume that serial comm is not okay
 bool hLearned = 1;  // Assume that learning has been done
 bool hAvailable = 1;  // Assume nothing is available
+bool trackingStop = 0;
 
 void printResult(HUSKYLENSResult result);
 void smoothMoveServo(int targetPosition);
@@ -70,30 +79,40 @@ void setup() {
   }
 #endif
 
-  directionServo.attach(directionServoPin, 500, 2500);
-  pinMode(directionServoPin, OUTPUT);
-  directionServo.write(stopSpeed);
+  directionServo.attach(DIR_SERVO_PIN, 500, 2500);
+  pinMode(DIR_SERVO_PIN, OUTPUT);
+  directionServo.write(STOP_SPEED);
 
-  ballGateServo.attach(ballGateServoPin, 500, 2500);
-  pinMode(ballGateServoPin, OUTPUT);
-  ballGateServo.write(servoMin);
+  ballGateServo.attach(BALL_GATE_SERVO_PIN, 500, 2500);
+  pinMode(BALL_GATE_SERVO_PIN, OUTPUT);
+  ballGateServo.write(SERVO_MIN);
 
-  pinMode(ledPin, OUTPUT);
-  digitalWrite(ledPin, LOW); // Ensure the LED is initially off
-  pinMode(debugPin, OUTPUT);
-  digitalWrite(debugPin, LOW);
+  pinMode(TRIG_PIN, OUTPUT); // Set the trig pin as an output
+  pinMode(ECHO_PIN, INPUT); // Set the echo pin as an input
+  digitalWrite(TRIG_PIN, LOW);
+
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, LOW); // Ensure the LED is initially off
+
+  pinMode(DEBUG_PIN, OUTPUT);
+  digitalWrite(DEBUG_PIN, LOW);
+
+  trigTimer.set(TRIG_TIME, &trigOn);
+  trigTimer.enable();
+  trigOffTimer.set(TRIG_OFF_TIME, &trigOff);
+  trigOffTimer.disable();
 
   // onboard LED/GPIO 13 timer
-  ledTimer.set(ledOnTime, &ledOff);
+  ledTimer.set(LED_ON_TIME, &ledOff);
   ledTimer.disable();
 
-  stationaryTimer.set(stationaryWaitTime, &releaseBall);
+  stationaryTimer.set(STATIONARY_WAIT_TIME, &releaseBall);
   stationaryTimer.disable();
 
-  resetBallGateTimer.set(resetBallWaitTime, &resetBallGate);
+  resetBallGateTimer.set(RESET_BALL_WAIT_TIME, &resetBallGate);
   resetBallGateTimer.disable();
 
-  directionServoTimer.set(directionServoDelayTime, &adjustDirectionServo);
+  directionServoTimer.set(DIR_SERVO_DELAY_TIME, &adjustDirectionServo);
   directionServoTimer.disable();
 
 #ifdef HUSKYLENS
@@ -105,6 +124,8 @@ void setup() {
 }
 
 void loop() {
+  trigTimer.update();
+  trigOffTimer.update();
   ledTimer.update();
   stationaryTimer.update();
   resetBallGateTimer.update();
@@ -116,9 +137,12 @@ void loop() {
   targetSpeed = getSerialInputData();
 #endif
 
-  if (offPrintTime < millis()) {
+  if (trackingStop)
+    targetSpeed = STOP_SPEED;
+
+  if (offPrintWaitTime < millis()) {
     Serial.println("t: "+String(targetSpeed)+" c: "+String(curSpeed));
-    offPrintTime = millis() + printOffTime;
+    offPrintWaitTime = millis() + PRINT_OFF_TIME;
   }
 
   if (targetSpeed != curSpeed) {
@@ -134,7 +158,6 @@ void loop() {
       lastTarget = targetSpeed;
     }
   }
-return;
 
 #if 0
   else {
@@ -157,7 +180,7 @@ return;
 // It will be between 0 and 320. If < 160 we must turn left;
 // if > 160 we must turn right; if 160 we are centered and so stop.
 int getHuskyLensData() {
-  int tSpeed = stopSpeed;
+  int tSpeed = STOP_SPEED;
   if (!huskylens.request()) {
     if (hRequest) Serial.println(F("Fail to request data from HUSKYLENS, recheck the connection!"));
     hRequest = 0;
@@ -179,20 +202,20 @@ int getHuskyLensData() {
     if (result.command == COMMAND_RETURN_BLOCK && result.ID == savedObjectID) {
       int posX = result.xCenter; // Get X position of the object
       if (posX < 160) {
-        if (tSpeed > stopSpeed) {
-          if (tSpeed < servoMax) tSpeed += speedStep;
+        if (tSpeed > STOP_SPEED) {
+          if (tSpeed < SERVO_MAX) tSpeed += SPEED_STEP;
         }
         else
-          tSpeed = stopSpeed + (2*speedStep);
+          tSpeed = STOP_SPEED + (2*SPEED_STEP);
       } else if (posX > 160) {
-        if (tSpeed < stopSpeed) {
-          if (tSpeed > servoMin) tSpeed -= speedStep;
+        if (tSpeed < STOP_SPEED) {
+          if (tSpeed > SERVO_MIN) tSpeed -= SPEED_STEP;
         }
         else
-          tSpeed = stopSpeed - (2*speedStep);
+          tSpeed = STOP_SPEED - (2*SPEED_STEP);
       }
       else {
-        tSpeed = stopSpeed;
+        tSpeed = STOP_SPEED;
       }
     }
   }
@@ -207,19 +230,19 @@ int getSerialInputData() {
     int input = 0;
     input = Serial.read();
     if (input == 108) {
-      if (tSpeed > stopSpeed)
-        if (tSpeed < servoMax) tSpeed += speedStep;
+      if (tSpeed > STOP_SPEED)
+        if (tSpeed < SERVO_MAX) tSpeed += SPEED_STEP;
       else
-        tSpeed = stopSpeed + (2*speedStep);
+        tSpeed = STOP_SPEED + (2*SPEED_STEP);
     }
     else if (input == 114) {
-      if (tSpeed < stopSpeed)
-        if (tSpeed > servoMin) tSpeed -= speedStep;
+      if (tSpeed < STOP_SPEED)
+        if (tSpeed > SERVO_MIN) tSpeed -= SPEED_STEP;
       else
-        tSpeed = stopSpeed - (2*speedStep);
+        tSpeed = STOP_SPEED - (2*SPEED_STEP);
     }
     else if (input == 115) {
-      tSpeed = stopSpeed;
+      tSpeed = STOP_SPEED;
     }
   }
   return tSpeed;
@@ -236,33 +259,71 @@ void sendCommandToHuskyLens(String command, String parameter) {
   delay(100);  // Give time for the HuskyLens to process the command
 }
 
-// directionServoTimer runs every directionServoDelayTime and when it runs it will
+// directionServoTimer runs every DIR_SERVO_DELAY_TIME and when it runs it will
 // change directionServoPosition by increment and then set new directionServoPosition.
 void adjustDirectionServo() {
   if (targetSpeed < curSpeed)
-    curSpeed -= speedStep;
+    curSpeed -= SPEED_STEP;
   else if (targetSpeed > curSpeed)
-    curSpeed += speedStep;
+    curSpeed += SPEED_STEP;
   else
     return;
-  if ((curSpeed <= servoMax) && (curSpeed  >= servoMin))
+  if ((curSpeed <= SERVO_MAX) && (curSpeed  >= SERVO_MIN))
     directionServo.write(curSpeed);
+}
+
+// Send ultrasonic trigger pulse
+void trigOn() {
+  digitalWrite(TRIG_PIN, HIGH); // Turn on trigger signal
+  trigOffTimer.reset();
+  trigOffTimer.enable();
+}
+
+void trigOff() {
+  long duration, distance; // Variables to store ultrasonic sensor readings
+
+  digitalWrite(TRIG_PIN, LOW); // Turn off trigger signal
+  trigOffTimer.disable();
+
+  // Read the echo pulse duration
+  duration = pulseIn(ECHO_PIN, HIGH);
+  // Calculate the distance in centimeters
+  distance = duration * 0.034 / 2;
+
+  if (distance < DISTANCE_THRESHOLD) {
+    if (!trackingStop)
+      trackingStop = 1;
+    else
+      trackingStop = 0;
+    Serial.println(distance);
+  }
+
+#if 0
+  // Check if the object is within 5 centimeters
+  if (distance < DISTANCE_THRESHOLD) {
+    // Turn on the LED
+    digitalWrite(LED_PIN, HIGH);
+  } else {
+    // Turn off the LED
+    digitalWrite(LED_PIN, LOW);
+  }
+#endif
 }
 
 void ledOff()
 {
-  digitalWrite(ledPin, LOW); // Turn off the LED
+  digitalWrite(LED_PIN, LOW); // Turn off the LED
   ledOn = 0;
   Serial.println("OFF");
   ledTimer.disable();
-  ledOffWaitTime = millis() + ledOffTime;
+  ledOffWaitTime = millis() + LED_OFF_TIME;
 }
 
 void releaseBall()
 {
   stationaryTimer.disable();
   // run second servo full swing, wait, and then swing back.
-  ballGateServo.write(servoMax);
+  ballGateServo.write(SERVO_MAX);
   resetBallGateTimer.reset();
   resetBallGateTimer.enable();
 }
@@ -270,5 +331,5 @@ void releaseBall()
 void resetBallGate()
 {
   resetBallGateTimer.disable();
-  ballGateServo.write(servoMin);
+  ballGateServo.write(SERVO_MIN);
 }
