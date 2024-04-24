@@ -7,7 +7,7 @@
 // the servo can do 0 to 180 degrees.
 
 HUSKYLENS huskylens;
-#define HUSKYLENS
+//#define HUSKYLENS
 
 int savedObjectID = 1; // Change this to the ID of the saved object you want to track
 
@@ -36,7 +36,7 @@ PWMServo ballGateServo;
 
 #define TRIG_PIN 9 // Define the trig pin of the ultrasonic sensor
 #define ECHO_PIN 10 // Define the echo pin of the ultrasonic sensor
-#define DISTANCE_THRESHOLD 5 // Define the distance threshold in centimeters
+#define DISTANCE_THRESHOLD 0 // Define the distance threshold in centimeters
 #define TRIG_TIME 100
 #define TRIG_OFF_TIME 10
 TimerEvent trigTimer;
@@ -230,14 +230,16 @@ int getSerialInputData() {
     int input = 0;
     input = Serial.read();
     if (input == 108) {
-      if (tSpeed > STOP_SPEED)
+      if (tSpeed > STOP_SPEED) {
         if (tSpeed < SERVO_MAX) tSpeed += SPEED_STEP;
+      }
       else
         tSpeed = STOP_SPEED + (2*SPEED_STEP);
     }
     else if (input == 114) {
-      if (tSpeed < STOP_SPEED)
+      if (tSpeed < STOP_SPEED) {
         if (tSpeed > SERVO_MIN) tSpeed -= SPEED_STEP;
+      }
       else
         tSpeed = STOP_SPEED - (2*SPEED_STEP);
     }
