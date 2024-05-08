@@ -13,16 +13,16 @@ int savedObjectID = 1; // Change this to the ID of the saved object you want to 
 
 #define STOP_SPEED 90
 #define START_STEP 10
-#define SPEED_STEP 1
+#define SPEED_STEP 3
 int currentSpeed = STOP_SPEED;
 int targetSpeed = STOP_SPEED;
 int lastTarget = -1;
 
-#define SERVO_MIN 0
-#define SERVO_MAX 180
+#define SERVO_MIN 20
+#define SERVO_MAX 160
 
 #define DIR_SERVO_PIN SERVO_PIN_B // Servo signal pin
-#define DIR_SERVO_DELAY_TIME 100
+#define DIR_SERVO_DELAY_TIME 75
 TimerEvent directionServoTimer;
 PWMServo directionServo;
 bool servoMoving = false; // Flag to track object detection
@@ -42,7 +42,7 @@ PWMServo ballGateServo;
 
 #define TRIG_PIN 9 // Define the trig pin of the ultrasonic sensor
 #define ECHO_PIN 10 // Define the echo pin of the ultrasonic sensor
-#define DISTANCE_THRESHOLD 10 // Define the distance threshold in centimeters
+#define DISTANCE_THRESHOLD 0 // Define the distance threshold in centimeters
 #define TRIG_TIME 100
 #define TRIG_OFF_TIME 10
 TimerEvent trigTimer;
