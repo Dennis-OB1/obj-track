@@ -69,6 +69,7 @@ unsigned long offPrintWaitTime = 0;
 bool hRequest = false;  // Assume that serial comm is not okay
 bool hLearned = true;  // Assume that learning has been done
 bool hAvailable = true;  // Assume nothing is available
+bool hBlock = true;
 bool hTrackingRestrict = false;
 bool hThreshold = true;
 
@@ -201,11 +202,14 @@ int getHuskyLensData() {
   else if (!huskylens.available()) {
     if (hAvailable) Serial.println(F("No block"));
     hAvailable = false;
+    hBlock = true;
   }
   else {
-    //Serial.println(F("block"));
-    tSpeed = targetSpeed;
+    if (hBlock) Serial.println(F("Blue Block"));
+    hBlock = false;
     hAvailable = true;
+
+    tSpeed = targetSpeed;
     HUSKYLENSResult result = huskylens.read();
     printHuskyLensResult(result);
 
