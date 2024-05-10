@@ -13,16 +13,16 @@ int savedObjectID = 1; // Change this to the ID of the saved object you want to 
 
 #define STOP_SPEED 90
 #define START_STEP 10
-#define SPEED_STEP 3
+#define SPEED_STEP 1
 int currentSpeed = STOP_SPEED;
 int targetSpeed = STOP_SPEED;
 int lastTarget = -1;
 
-#define SERVO_MIN 20
-#define SERVO_MAX 160
+#define SERVO_MIN 30
+#define SERVO_MAX 150
 
 #define DIR_SERVO_PIN SERVO_PIN_B // Servo signal pin
-#define DIR_SERVO_DELAY_TIME 75
+#define DIR_SERVO_DELAY_TIME 50
 TimerEvent directionServoTimer;
 PWMServo directionServo;
 bool servoMoving = false; // Flag to track object detection
@@ -96,7 +96,7 @@ void setup() {
 
   ballGateServo.attach(BALL_GATE_SERVO_PIN, 500, 2500);
   pinMode(BALL_GATE_SERVO_PIN, OUTPUT);
-  ballGateServo.write(SERVO_MIN);
+  ballGateServo.write(10);
 
   pinMode(TRIG_PIN, OUTPUT); // Set the trig pin as an output
   pinMode(ECHO_PIN, INPUT); // Set the echo pin as an input
@@ -344,13 +344,18 @@ void ledOff()
   ledOffWaitTime = millis() + LED_OFF_TIME;
 }
 
-// May want to restrict releasing the ball only if hAvailable is true; i.e. if HuskyLens actually sees the object - TBD
 void releaseBall()
 {
   stationaryTimer.disable();
+
+  // Restrict releasing the ball only if hAvailable  and still STOP
+  if (!hAvailable || (currentSpeed != STOP_SPEED)) {
+    return;
+  }
+
   // run second servo full swing, wait, and then swing back.
   Serial.println("Release Ball");
-  ballGateServo.write(SERVO_MAX);
+  ballGateServo.write(50);
   resetBallGateTimer.reset();
   resetBallGateTimer.enable();
 }
@@ -359,5 +364,5 @@ void resetBallGate()
 {
   Serial.println("Reset Ball Gate");
   resetBallGateTimer.disable();
-  ballGateServo.write(SERVO_MIN);
+  ballGateServo.write(10);
 }
