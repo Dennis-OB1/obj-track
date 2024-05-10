@@ -34,11 +34,18 @@ int lastDirection = STOP;
 
 #define STATIONARY_WAIT_TIME 2000
 TimerEvent stationaryTimer;
+#define RESET_BALL_WAIT_TIME 1000
+TimerEvent resetBallTimer;
 
 #define BALL_GATE_SERVO_PIN SERVO_PIN_A // Servo signal pin
-#define RESET_BALL_WAIT_TIME 1000
-TimerEvent resetBallGateTimer;
+#define CHANGE_BALL_GATE_WAIT_TIME 10
+#define GATE_MIN 10
+#define GATE_MAX 50
+#define GATE_STEP 2
+TimerEvent changeBallGateTimer;
 PWMServo ballGateServo;
+int gatePosition = GATE_MIN;
+int ballGateStep = GATE_STEP;
 
 #define TRIG_PIN 9 // Define the trig pin of the ultrasonic sensor
 #define ECHO_PIN 10 // Define the echo pin of the ultrasonic sensor
@@ -73,7 +80,7 @@ void ledOff();
 void adjustDirectionServo();
 void trigOn();
 void trigOff();
-void releaseBall();
+void stationaryCheck();
 void resetBallGate();
 
 void setup() {
@@ -96,7 +103,7 @@ void setup() {
 
   ballGateServo.attach(BALL_GATE_SERVO_PIN, 500, 2500);
   pinMode(BALL_GATE_SERVO_PIN, OUTPUT);
-  ballGateServo.write(10);
+  ballGateServo.write(gatePosition);
 
   pinMode(TRIG_PIN, OUTPUT); // Set the trig pin as an output
   pinMode(ECHO_PIN, INPUT); // Set the echo pin as an input
@@ -117,11 +124,14 @@ void setup() {
   ledTimer.set(LED_ON_TIME, &ledOff);
   ledTimer.disable();
 
-  stationaryTimer.set(STATIONARY_WAIT_TIME, &releaseBall);
+  stationaryTimer.set(STATIONARY_WAIT_TIME, &stationaryCheck);
   stationaryTimer.disable();
 
-  resetBallGateTimer.set(RESET_BALL_WAIT_TIME, &resetBallGate);
-  resetBallGateTimer.disable();
+  resetBallTimer.set(RESET_BALL_WAIT_TIME, &resetBallGate);
+  resetBallTimer.disable();
+
+  changeBallGateTimer.set(CHANGE_BALL_GATE_WAIT_TIME, &changeBallGate);
+  changeBallGateTimer.disable();
 
   directionServoTimer.set(DIR_SERVO_DELAY_TIME, &adjustDirectionServo);
   directionServoTimer.disable();
@@ -147,7 +157,8 @@ void loop() {
   trigOffTimer.update();
   ledTimer.update();
   stationaryTimer.update();
-  resetBallGateTimer.update();
+  resetBallTimer.update();
+  changeBallGateTimer.update();
   directionServoTimer.update();
 
   if (offPrintWaitTime < millis()) {
@@ -344,25 +355,40 @@ void ledOff()
   ledOffWaitTime = millis() + LED_OFF_TIME;
 }
 
-void releaseBall()
+void stationaryCheck()
 {
   stationaryTimer.disable();
 
-  // Restrict releasing the ball only if hAvailable  and still STOP
-  if (!hAvailable || (currentSpeed != STOP_SPEED)) {
+  // Restrict releasing the ball only if hAvailable and still STOP
+  if (!hAvailable || (currentSpeed != STOP_SPEED))
     return;
-  }
 
-  // run second servo full swing, wait, and then swing back.
   Serial.println("Release Ball");
-  ballGateServo.write(50);
-  resetBallGateTimer.reset();
-  resetBallGateTimer.enable();
+  ballGateStep = GATE_STEP;
+  changeBallGateTimer.reset();
+  changeBallGateTimer.enable();
 }
 
 void resetBallGate()
 {
+  resetBallTimer.disable();
+
   Serial.println("Reset Ball Gate");
-  resetBallGateTimer.disable();
-  ballGateServo.write(10);
+  ballGateStep = -GATE_STEP;
+  changeBallGateTimer.reset();
+  changeBallGateTimer.enable();
+}
+
+void changeBallGate()
+{
+  gatePosition += ballGateStep;
+  if ((gatePosition >= GATE_MIN) && (gatePosition <= GATE_MAX))
+    ballGateServo.write(gatePosition);
+  else
+    changeBallGateTimer.disable();
+
+  if (gatePosition > GATE_MAX) {
+    resetBallTimer.reset();
+    resetBallTimer.enable();
+  }
 }
