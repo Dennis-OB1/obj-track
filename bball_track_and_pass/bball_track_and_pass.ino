@@ -13,7 +13,7 @@ int savedObjectID = 1; // Change this to the ID of the saved object you want to 
 
 #define STOP_SPEED 90
 #define START_STEP 10
-#define SPEED_STEP 1
+#define SPEED_STEP 2
 int currentSpeed = STOP_SPEED;
 int targetSpeed = STOP_SPEED;
 int lastTarget = -1;
@@ -32,14 +32,14 @@ bool servoMoving = false; // Flag to track object detection
 int direction = STOP;
 int lastDirection = STOP;
 
-#define STATIONARY_WAIT_TIME 2000
+#define STATIONARY_WAIT_TIME 1500
 TimerEvent stationaryTimer;
 #define RESET_BALL_WAIT_TIME 1000
 TimerEvent resetBallTimer;
 
 #define BALL_GATE_SERVO_PIN SERVO_PIN_A // Servo signal pin
 #define CHANGE_BALL_GATE_WAIT_TIME 10
-#define GATE_MIN 10
+#define GATE_MIN 0
 #define GATE_MAX 50
 #define GATE_STEP 2
 TimerEvent changeBallGateTimer;
@@ -203,6 +203,7 @@ int getHuskyLensData() {
     hAvailable = false;
   }
   else {
+    //Serial.println(F("block"));
     tSpeed = targetSpeed;
     hAvailable = true;
     HUSKYLENSResult result = huskylens.read();
