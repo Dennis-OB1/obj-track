@@ -7,7 +7,6 @@
 // the servo can do 0 to 180 degrees.
 
 HUSKYLENS huskylens;
-#define HUSKYLENS
 
 int savedObjectID = 1; // Change this to the ID of the saved object you want to track
 
@@ -90,7 +89,6 @@ void resetBallGate();
 void setup() {
   Serial.begin(115200);
 
-#ifdef HUSKYLENS
   Serial2.begin(9600);
   while (!huskylens.begin(Serial2)) {
       Serial.println(F("Begin failed!"));
@@ -99,7 +97,6 @@ void setup() {
       delay(100);
       hRequest = 1;
   }
-#endif
 
   directionServo.attach(DIR_SERVO_PIN, 500, 2500);
   pinMode(DIR_SERVO_PIN, OUTPUT);
@@ -140,10 +137,8 @@ void setup() {
   directionServoTimer.set(DIR_SERVO_DELAY_TIME, &adjustDirectionServo);
   directionServoTimer.disable();
 
-#ifdef HUSKYLENS
   // Configure HuskyLens to recognize a specific object
   sendCommandToHuskyLens("SET_RECOGNITION_MODE", "LEARNED_OBJECT_1");
-#endif
 
   Serial.println("Setup Done!");
 
