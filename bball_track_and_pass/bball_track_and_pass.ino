@@ -31,7 +31,6 @@ bool servoMoving = false; // Flag to track object detection
 #define CW -1
 #define STOP 0
 int direction = STOP;
-int lastDirection = STOP;
 
 #define STATIONARY_WAIT_TIME 1500
 TimerEvent stationaryTimer;
@@ -50,7 +49,7 @@ int ballGateStep = GATE_STEP;
 
 #define TRIG_PIN 9 // Define the trig pin of the ultrasonic sensor
 #define ECHO_PIN 10 // Define the echo pin of the ultrasonic sensor
-#define DISTANCE_THRESHOLD 0 // Define the distance threshold in centimeters
+#define DISTANCE_THRESHOLD 4 // Define the distance threshold in centimeters
 #define TRIG_TIME 100
 #define TRIG_OFF_TIME 10
 TimerEvent trigTimer;
@@ -325,11 +324,10 @@ void adjustDirectionServo() {
   else
     direction = STOP;
 
-  if (hTrackingRestrict) {
-    if (direction == lastDirection) {
-      currentSpeed = STOP_SPEED;
-    }
-  }
+  // if tracking is restricted in current direction then stop
+  if (hTrackingRestrict == direction)
+    currentSpeed = STOP_SPEED;
+
   // change speed
   directionServo.write(currentSpeed);
 }
@@ -344,11 +342,11 @@ void trigOn() {
 void trigOff() {
   long duration, distance; // Variables to store ultrasonic sensor readings
 
-  digitalWrite(TRIG_PIN, LOW); // Turn off trigger signal
-  trigOffTimer.disable();
-
-  // Read the echo pulse duration
+  // Turn off trigger signal and read the echo pulse duration
+  digitalWrite(TRIG_PIN, LOW);
   duration = pulseIn(ECHO_PIN, HIGH);
+
+  trigOffTimer.disable();
   // Calculate the distance in centimeters
   distance = duration * 0.034 / 2;
 
@@ -357,15 +355,13 @@ void trigOff() {
       Serial.println(distance);
       hThreshold = false;
     }
-    // remember last direction
-    lastDirection = direction;
     // set targetSpeed to STOP_SPEED
     targetSpeed = STOP_SPEED;
-    // restrict tracking to only the reverse direction
-    hTrackingRestrict = true;
+    // restrict tracking in the current direction
+    hTrackingRestrict = direction;
   }
   else {
-    hTrackingRestrict = false;
+    hTrackingRestrict = STOP;
     hThreshold = true;
   }
 }
