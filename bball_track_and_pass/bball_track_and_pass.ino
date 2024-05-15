@@ -14,6 +14,7 @@ int savedObjectID = 1; // Change this to the ID of the saved object you want to 
 #define STOP_SPEED 90
 #define START_STEP 10
 #define SPEED_STEP 2
+#define MANUAL_SPEED_STEP 10
 int currentSpeed = STOP_SPEED;
 int targetSpeed = STOP_SPEED;
 int lastTarget = -1;
@@ -63,15 +64,18 @@ bool ledOn = 0;
 unsigned long ledOffWaitTime = 0;
 
 #define PRINT_OFF_TIME 5000
-#define DEBUG_PIN 8  // debug signal pin
+//#define DEBUG_PIN 8  // debug signal pin
 unsigned long offPrintWaitTime = 0;
 
 bool hRequest = false;  // Assume that serial comm is not okay
 bool hLearned = true;  // Assume that learning has been done
-bool hAvailable = true;  // Assume nothing is available
+bool hAvailable = false;  // Assume nothing is available
 bool hBlock = true;
 bool hTrackingRestrict = false;
 bool hThreshold = true;
+
+#define SERIAL_INPUT_ENABLE_PIN 8
+int serialInputEnabled = true; // on start serialInputData is used
 
 void printResult(HUSKYLENSResult result);
 void smoothMoveServo(int targetPosition);
@@ -113,8 +117,8 @@ void setup() {
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW); // Ensure the LED is initially off
 
-  pinMode(DEBUG_PIN, OUTPUT);
-  digitalWrite(DEBUG_PIN, LOW);
+  //pinMode(DEBUG_PIN, OUTPUT);
+  //digitalWrite(DEBUG_PIN, LOW);
 
   trigTimer.set(TRIG_TIME, &trigOn);
   trigTimer.enable();
@@ -143,19 +147,29 @@ void setup() {
 #endif
 
   Serial.println("Setup Done!");
+
+  pinMode(SERIAL_INPUT_ENABLE_PIN, INPUT);
+  serialInputEnabled = digitalRead(SERIAL_INPUT_ENABLE_PIN);
+  if (serialInputEnabled) {
+    Serial.println("Serial Input Data:");
+    Serial.println("   'l' - CCW");
+    Serial.println("   'r' - CW");
+    Serial.println("   's' - stop");
+    Serial.println("   'q' - quit");
+  }
 }
 
 void loop() {
-#ifdef HUSKYLENS
-  targetSpeed = getHuskyLensData();
-#else
-  targetSpeed = getSerialInputData();
-#endif
-
-  // placing these after getting the next targetSpeed above because
-  // trigOffTimer can change targetSpeed.
+  // placing these before getting the next targetSpeed above because
+  // trigOffTimer can restrict targetSpeed.
   trigTimer.update();
   trigOffTimer.update();
+
+  if (serialInputEnabled)
+    targetSpeed = getSerialInputData();
+  else
+    targetSpeed = getHuskyLensData();
+
   ledTimer.update();
   stationaryTimer.update();
   resetBallTimer.update();
@@ -241,7 +255,7 @@ int getHuskyLensData() {
 }
 
 // Unless the user inputs data, currentSpeed will be returned
-// if 'l' then left; if 'r' then right; if 's' then stop
+// if 'l' then left; if 'r' then right; if 's' then stop; if 'q' disable serialInput
 int getSerialInputData() {
   int tSpeed = targetSpeed;
   if (Serial.available() > 0) {
@@ -250,7 +264,7 @@ int getSerialInputData() {
     if (input == 108) {
       // 'l' CCW
       if (tSpeed > STOP_SPEED) {
-        if (tSpeed < SERVO_MAX) tSpeed += SPEED_STEP;
+        if (tSpeed < SERVO_MAX) tSpeed += MANUAL_SPEED_STEP;
       }
       else
         tSpeed = STOP_SPEED + START_STEP;
@@ -258,7 +272,7 @@ int getSerialInputData() {
     else if (input == 114) {
       // 'r' CW
       if (tSpeed < STOP_SPEED) {
-        if (tSpeed > SERVO_MIN) tSpeed -= SPEED_STEP;
+        if (tSpeed > SERVO_MIN) tSpeed -= MANUAL_SPEED_STEP;
       }
       else
         tSpeed = STOP_SPEED - START_STEP;
@@ -266,6 +280,11 @@ int getSerialInputData() {
     else if (input == 115) {
       // 's' STOP
       tSpeed = STOP_SPEED;
+    }
+    else if (input == 113) {
+      tSpeed = STOP_SPEED;
+      serialInputEnabled = false;
+      hAvailable = true;
     }
   }
   return tSpeed;
