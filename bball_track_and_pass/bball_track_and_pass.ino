@@ -158,17 +158,16 @@ void loop() {
   // trigOffTimer can restrict targetSpeed.
   trigTimer.update();
   trigOffTimer.update();
-
-  if (serialInputEnabled)
-    targetSpeed = getSerialInputData();
-  else
-    targetSpeed = getHuskyLensData();
-
   ledTimer.update();
   stationaryTimer.update();
   resetBallTimer.update();
   changeBallGateTimer.update();
   directionServoTimer.update();
+
+  if (serialInputEnabled)
+    targetSpeed = getSerialInputData();
+  else
+    targetSpeed = getHuskyLensData();
 
   if (offPrintWaitTime < millis()) {
     Serial.println("t: "+String(targetSpeed)+" c: "+String(currentSpeed)+" d: "+String(direction)+" r: "+String(hTrackingRestrict));
@@ -298,10 +297,7 @@ void sendCommandToHuskyLens(String command, String parameter) {
 // directionServoTimer runs every DIR_SERVO_DELAY_TIME and when it runs it will
 // change directionServoPosition by increment and then set new directionServoPosition.
 void adjustDirectionServo() {
-  if (targetSpeed == STOP_SPEED) {
-    currentSpeed = targetSpeed;
-  }
-  else if (targetSpeed < currentSpeed) {
+  if (targetSpeed < currentSpeed) {
     currentSpeed -= SPEED_STEP;
     if (currentSpeed < SERVO_MIN) currentSpeed = SERVO_MIN;
   }
@@ -350,8 +346,6 @@ void trigOff() {
       Serial.println(distance);
       hThreshold = false;
     }
-    // set targetSpeed to STOP_SPEED
-    targetSpeed = STOP_SPEED;
     // restrict tracking in the current direction
     hTrackingRestrict = direction;
   }
