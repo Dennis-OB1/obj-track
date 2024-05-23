@@ -30,6 +30,8 @@ bool servoMoving = false; // Flag to track object detection
 #define CW -1
 #define STOP 0
 int direction = STOP;
+int last_direction = STOP;
+int hTrackingRestrict = STOP;
 
 #define STATIONARY_WAIT_TIME 1500
 TimerEvent stationaryTimer;
@@ -69,8 +71,8 @@ bool hRequest = false;  // Assume that serial comm is not okay
 bool hLearned = true;  // Assume that learning has been done
 bool hAvailable = false;  // Assume nothing is available
 bool hBlock = true;
-bool hTrackingRestrict = false;
-bool hThreshold = true;
+bool hThresholdOn = true;
+bool hThresholdOff = false;
 
 #define SERIAL_INPUT_ENABLE_PIN 8
 int serialInputEnabled = true; // on start serialInputData is used
@@ -158,17 +160,16 @@ void loop() {
   // trigOffTimer can restrict targetSpeed.
   trigTimer.update();
   trigOffTimer.update();
-
-  if (serialInputEnabled)
-    targetSpeed = getSerialInputData();
-  else
-    targetSpeed = getHuskyLensData();
-
   ledTimer.update();
   stationaryTimer.update();
   resetBallTimer.update();
   changeBallGateTimer.update();
   directionServoTimer.update();
+
+  if (serialInputEnabled)
+    targetSpeed = getSerialInputData();
+  else
+    targetSpeed = getHuskyLensData();
 
   if (offPrintWaitTime < millis()) {
     Serial.println("t: "+String(targetSpeed)+" c: "+String(currentSpeed)+" d: "+String(direction)+" r: "+String(hTrackingRestrict));
@@ -298,10 +299,7 @@ void sendCommandToHuskyLens(String command, String parameter) {
 // directionServoTimer runs every DIR_SERVO_DELAY_TIME and when it runs it will
 // change directionServoPosition by increment and then set new directionServoPosition.
 void adjustDirectionServo() {
-  if (targetSpeed == STOP_SPEED) {
-    currentSpeed = targetSpeed;
-  }
-  else if (targetSpeed < currentSpeed) {
+  if (targetSpeed < currentSpeed) {
     currentSpeed -= SPEED_STEP;
     if (currentSpeed < SERVO_MIN) currentSpeed = SERVO_MIN;
   }
@@ -322,6 +320,13 @@ void adjustDirectionServo() {
   // if tracking is restricted in current direction then stop
   if (hTrackingRestrict == direction)
     currentSpeed = STOP_SPEED;
+
+  if (last_direction != direction) {
+    Serial.println("Dt: "+String(targetSpeed)+" c: "+String(currentSpeed)+" d: "+String(direction)+" r: "+String(hTrackingRestrict));
+    last_direction = direction;
+  }
+//  else
+//    Serial.println("Nt: "+String(targetSpeed)+" c: "+String(currentSpeed)+" d: "+String(direction)+" r: "+String(hTrackingRestrict));
 
   // change speed
   directionServo.write(currentSpeed);
@@ -346,18 +351,27 @@ void trigOff() {
   distance = duration * 0.034 / 2;
 
   if (distance < DISTANCE_THRESHOLD) {
-    if (hThreshold) {
-      Serial.println(distance);
-      hThreshold = false;
+    // if not already restricted, restrict tracking in the current direction
+    if (hTrackingRestrict == STOP)
+      hTrackingRestrict = direction;
+
+    hThresholdOff = true;
+
+    if (hThresholdOn) {
+      Serial.println("d on: "+String(distance));
+      Serial.println("Tt: "+String(targetSpeed)+" c: "+String(currentSpeed)+" d: "+String(direction)+" r: "+String(hTrackingRestrict));
+      hThresholdOn = false;
     }
-    // set targetSpeed to STOP_SPEED
-    targetSpeed = STOP_SPEED;
-    // restrict tracking in the current direction
-    hTrackingRestrict = direction;
   }
   else {
     hTrackingRestrict = STOP;
-    hThreshold = true;
+    hThresholdOn = true;
+
+    if (hThresholdOff) {
+      Serial.println("d off: "+String(distance));
+      Serial.println("Tt: "+String(targetSpeed)+" c: "+String(currentSpeed)+" d: "+String(direction)+" r: "+String(hTrackingRestrict));
+      hThresholdOff = false;
+    }
   }
 }
 
