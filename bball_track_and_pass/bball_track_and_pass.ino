@@ -80,7 +80,6 @@ int serialInputEnabled = true; // on start serialInputData is used
 void printResult(HUSKYLENSResult result);
 void smoothMoveServo(int targetPosition);
 void moveServo(int angle);
-void sendCommandToHuskyLens(String command, String parameter);
 void ledOff();
 void adjustDirectionServo();
 void trigOn();
@@ -139,8 +138,8 @@ void setup() {
   directionServoTimer.set(DIR_SERVO_DELAY_TIME, &adjustDirectionServo);
   directionServoTimer.disable();
 
-  // Configure HuskyLens to recognize a specific object
-  sendCommandToHuskyLens("SET_RECOGNITION_MODE", "LEARNED_OBJECT_1");
+  // Configure HuskyLens to do object tracking
+  huskylens.writeAlgorithm(ALGORITHM_OBJECT_TRACKING);
 
   Serial.println("Setup Done!");
 
@@ -289,13 +288,6 @@ void printHuskyLensResult(HUSKYLENSResult result) {
   // Your printResult function remains the same
 }
 
-void sendCommandToHuskyLens(String command, String parameter) {
-  // Craft and send the command to HuskyLens
-  String fullCommand = command + " " + parameter + "\n";
-  Serial2.print(fullCommand);
-  delay(100);  // Give time for the HuskyLens to process the command
-}
-
 // directionServoTimer runs every DIR_SERVO_DELAY_TIME and when it runs it will
 // change directionServoPosition by increment and then set new directionServoPosition.
 void adjustDirectionServo() {
@@ -317,8 +309,8 @@ void adjustDirectionServo() {
   else
     direction = STOP;
 
-  // if tracking is restricted in current direction then stop
-  if (hTrackingRestrict == direction)
+  // if tracking is restricted in current direction or no block then stop
+  if ((hTrackingRestrict == direction) || (!hAvailable))
     currentSpeed = STOP_SPEED;
 
   if (last_direction != direction) {
